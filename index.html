@@ -1,0 +1,1970 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>⚡ Power Monitoring System - AC Monitoring with Relay Control</title>
+    
+    <!-- PWA Meta Tags -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#667eea">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="PowerMon">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="application-name" content="PowerMon">
+    <meta name="description" content="Real-time AC Power Monitoring with Relay Control & Auto Protection">
+    
+    <!-- External Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    
+    <style>
+        * { 
+            margin: 0; 
+            padding: 0; 
+            box-sizing: border-box; 
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 10px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+        }
+
+        .container { 
+            max-width: 1200px; 
+            width: 100%;
+            margin: 0 auto; 
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 15px;
+            padding: 10px 0;
+        }
+
+        .header h1 {
+            font-size: clamp(1.3em, 4vw, 2em);
+            margin-bottom: 3px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: clamp(0.8em, 2vw, 0.95em);
+            margin-bottom: 5px;
+        }
+
+        .status-row {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 0.8em;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+
+        .connected { 
+            background: #10b981; 
+            color: white; 
+        }
+        
+        .disconnected { 
+            background: #ef4444; 
+            color: white; 
+            animation: pulse 2s infinite; 
+        }
+
+        .device-online { 
+            background: #10b981; 
+            color: white; 
+        }
+        
+        .device-offline { 
+            background: #ef4444; 
+            color: white; 
+            animation: pulse 1.5s infinite; 
+        }
+
+        .rssi-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            padding: 4px 10px;
+            border-radius: 15px;
+            font-size: 0.8em;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+
+        .rssi-excellent { background: #10b981; color: white; }
+        .rssi-good { background: #3b82f6; color: white; }
+        .rssi-fair { background: #f59e0b; color: white; }
+        .rssi-poor { background: #ef4444; color: white; }
+        .rssi-offline { background: #6b7280; color: white; }
+
+        .priority-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.7em;
+            font-weight: bold;
+            background: #f59e0b;
+            color: white;
+            animation: autoGlow 2s infinite;
+        }
+
+        .tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-bottom: 15px;
+            background: white;
+            border-radius: 12px;
+            padding: 8px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        }
+
+        .tab-btn {
+            padding: 10px 20px;
+            border: none;
+            background: #e5e7eb;
+            color: #1f2937;
+            cursor: pointer;
+            border-radius: 8px;
+            font-size: 0.9em;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            flex: 1;
+            min-width: 120px;
+            text-align: center;
+        }
+
+        .tab-btn.active { 
+            background: #667eea; 
+            color: white; 
+        }
+
+        .tab-btn:hover:not(.active) { 
+            background: #d1d5db; 
+        }
+
+        .tab-content { 
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+        
+        .tab-content.active { 
+            display: block; 
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 12px;
+            margin-bottom: 15px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: clamp(12px, 2.5vw, 20px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+            transition: all 0.3s ease;
+            animation: slideIn 0.5s ease;
+        }
+
+        .card:hover { 
+            transform: translateY(-3px); 
+            box-shadow: 0 12px 35px rgba(0,0,0,0.2); 
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #e5e7eb;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .card-header h2 { 
+            font-size: clamp(1em, 3vw, 1.3em); 
+            color: #1f2937; 
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .relay-control {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .relay-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 0.85em;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            white-space: nowrap;
+        }
+
+        .relay-btn:active {
+            transform: scale(0.95);
+        }
+
+        .relay-btn.manual-on {
+            background: #10b981;
+            color: white;
+            box-shadow: 0 3px 12px rgba(16, 185, 129, 0.3);
+        }
+
+        .relay-btn.manual-on:hover:not(:disabled) {
+            background: #059669;
+            box-shadow: 0 5px 18px rgba(16, 185, 129, 0.5);
+            transform: translateY(-1px);
+        }
+
+        .relay-btn.manual-off {
+            background: #ef4444;
+            color: white;
+            box-shadow: 0 3px 12px rgba(239, 68, 68, 0.3);
+        }
+
+        .relay-btn.manual-off:hover:not(:disabled) {
+            background: #dc2626;
+            box-shadow: 0 5px 18px rgba(239, 68, 68, 0.5);
+            transform: translateY(-1px);
+        }
+
+        .relay-btn.manual-fault {
+            background: #6b7280;
+            color: white;
+            opacity: 0.7;
+        }
+
+        .relay-btn.reset-btn {
+            background: #3b82f6;
+            color: white;
+            box-shadow: 0 3px 12px rgba(59, 130, 246, 0.3);
+        }
+
+        .relay-btn.reset-btn:hover:not(:disabled) {
+            background: #2563eb;
+            box-shadow: 0 5px 18px rgba(59, 130, 246, 0.5);
+            transform: translateY(-1px);
+        }
+
+        .relay-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            filter: grayscale(20%);
+        }
+
+        .relay-btn:disabled:hover {
+            transform: none;
+            box-shadow: none;
+        }
+
+        .relay-status {
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 0.8em;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+
+        .relay-status.on { 
+            background: #10b981; 
+            color: white;
+            box-shadow: 0 0 8px rgba(16, 185, 129, 0.3);
+        }
+        
+        .relay-status.off { 
+            background: #ef4444; 
+            color: white;
+        }
+        
+        .relay-status.auto-on { 
+            background: #10b981; 
+            color: white;
+            box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+            animation: autoGlow 2s infinite;
+        }
+        
+        .relay-status.auto-off { 
+            background: #ef4444; 
+            color: white;
+            animation: autoGlow 2s infinite;
+        }
+        
+        .relay-status.fault { 
+            background: #ef4444; 
+            color: white; 
+            animation: faultBlink 0.5s infinite;
+        }
+
+        .relay-status.tripped {
+            background: #f59e0b;
+            color: white;
+            animation: faultBlink 0.5s infinite;
+        }
+
+        .protection-badge {
+            padding: 4px 10px;
+            border-radius: 15px;
+            font-size: 0.7em;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+
+        .protection-badge.overvoltage { 
+            background: #ef4444; 
+            color: white; 
+            animation: faultBlink 0.8s infinite;
+            box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+        }
+        
+        .protection-badge.overcurrent { 
+            background: #f59e0b; 
+            color: white; 
+            animation: faultBlink 0.8s infinite;
+            box-shadow: 0 0 12px rgba(245, 158, 11, 0.4);
+        }
+        
+        .protection-badge.normal { 
+            background: #10b981; 
+            color: white;
+            box-shadow: 0 0 8px rgba(16, 185, 129, 0.2);
+        }
+        
+        .protection-badge.fault { 
+            background: #ef4444; 
+            color: white; 
+            animation: faultBlink 0.5s infinite;
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.5);
+        }
+
+        .parameter-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 10px;
+        }
+
+        .param-item {
+            text-align: center;
+            padding: 12px 8px;
+            background: #f9fafb;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            border: 1px solid #e5e7eb;
+        }
+
+        .param-item:hover {
+            background: #f3f4f6;
+            border-color: #d1d5db;
+        }
+
+        .param-item.protection-warning {
+            background: #fee2e2;
+            border: 2px solid #ef4444;
+            animation: warningPulse 1.5s ease-in-out infinite;
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.2);
+        }
+
+        .param-label {
+            font-size: clamp(0.7em, 2vw, 0.8em);
+            color: #6b7280;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .param-value {
+            font-size: clamp(1.1em, 3vw, 1.8em);
+            font-weight: bold;
+            color: #1f2937;
+            transition: all 0.3s ease;
+        }
+
+        .param-unit { 
+            font-size: 0.7em; 
+            color: #9ca3af; 
+            margin-left: 2px; 
+        }
+        
+        .warning-text { 
+            font-size: 0.65em; 
+            color: #ef4444; 
+            margin-top: 3px; 
+            font-weight: bold;
+            animation: textPulse 1s infinite;
+        }
+
+        .badge-container {
+            display: flex;
+            gap: 6px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 12px;
+        }
+
+        .settings-panel {
+            background: white;
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 12px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+            animation: slideIn 0.5s ease;
+        }
+
+        .settings-panel h3 {
+            font-size: clamp(1em, 2.5vw, 1.2em);
+            margin-bottom: 15px;
+            color: #1f2937;
+        }
+
+        .settings-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 15px;
+        }
+
+        .setting-item {
+            padding: 12px;
+            background: #f9fafb;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+            transition: all 0.3s ease;
+        }
+
+        .setting-item:hover {
+            border-color: #d1d5db;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.08);
+        }
+
+        .setting-item label {
+            display: block;
+            font-weight: bold;
+            color: #1f2937;
+            margin-bottom: 6px;
+            font-size: 0.85em;
+        }
+
+        .setting-item .input-group {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .setting-item input {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 0.9em;
+            transition: all 0.3s ease;
+            min-width: 0;
+        }
+
+        .setting-item input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 8px rgba(102, 126, 234, 0.2);
+        }
+
+        .setting-item .input-unit {
+            font-size: 0.85em;
+            color: #6b7280;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+
+        .setting-item button {
+            width: 100%;
+            padding: 8px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 0.85em;
+            transition: all 0.3s ease;
+            margin-top: 6px;
+        }
+
+        .setting-item button:hover { 
+            background: #5a67d8;
+            transform: translateY(-1px);
+            box-shadow: 0 3px 10px rgba(102, 126, 234, 0.3);
+        }
+
+        .limit-value {
+            margin-top: 6px;
+            font-size: 0.8em;
+            color: #6b7280;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #f3f4f6;
+            font-size: 0.85em;
+        }
+
+        .info-row:last-child {
+            border-bottom: none;
+        }
+
+        .info-label {
+            color: #6b7280;
+            font-weight: 500;
+        }
+
+        .info-value {
+            color: #1f2937;
+            font-weight: bold;
+        }
+
+        .chart-container {
+            background: white;
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 12px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+            animation: slideIn 0.5s ease;
+        }
+
+        .chart-wrapper {
+            position: relative;
+            height: clamp(200px, 35vh, 350px);
+            min-height: 200px;
+            width: 100%;
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .chart-header h3 {
+            font-size: clamp(0.9em, 2.5vw, 1.1em);
+            color: #1f2937;
+            margin: 0;
+        }
+
+        .chart-controls { 
+            display: flex; 
+            gap: 6px; 
+            flex-wrap: wrap; 
+        }
+
+        .btn {
+            padding: 6px 14px;
+            border: none;
+            border-radius: 6px;
+            background: #667eea;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: bold;
+            font-size: 0.8em;
+            white-space: nowrap;
+        }
+
+        .btn:hover { 
+            background: #5a67d8;
+            transform: translateY(-1px);
+            box-shadow: 0 3px 10px rgba(102, 126, 234, 0.3);
+        }
+        
+        .btn.active { 
+            background: #764ba2;
+            box-shadow: 0 3px 12px rgba(118, 75, 162, 0.4);
+        }
+
+        .fault-message {
+            background: #fee2e2;
+            border-left: 4px solid #ef4444;
+            padding: 12px;
+            margin-bottom: 12px;
+            border-radius: 6px;
+            font-size: 0.85em;
+            font-weight: bold;
+            animation: slideDown 0.5s ease;
+            box-shadow: 0 3px 12px rgba(239, 68, 68, 0.15);
+        }
+
+        .priority-info {
+            background: #fffbeb;
+            border-left: 4px solid #f59e0b;
+            padding: 10px 12px;
+            margin-bottom: 12px;
+            border-radius: 6px;
+            font-size: 0.8em;
+            color: #92400e;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 12px;
+        }
+
+        .pwa-install-prompt {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            padding: 15px 20px;
+            border-radius: 12px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+            z-index: 9999;
+            display: none;
+            animation: slideIn 0.5s ease;
+        }
+
+        .pwa-install-prompt button {
+            margin: 5px;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .pwa-install-prompt .install-btn {
+            background: #667eea;
+            color: white;
+        }
+
+        .pwa-install-prompt .dismiss-btn {
+            background: #e5e7eb;
+            color: #1f2937;
+        }
+
+        .footer {
+            text-align: center;
+            color: white;
+            padding: 15px;
+            font-size: 0.8em;
+            opacity: 0.85;
+        }
+
+        .footer p {
+            margin-bottom: 3px;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideIn {
+            from { 
+                opacity: 0;
+                transform: translateY(15px);
+            }
+            to { 
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes slideDown {
+            from { 
+                opacity: 0;
+                transform: translateY(-8px);
+                max-height: 0;
+            }
+            to { 
+                opacity: 1;
+                transform: translateY(0);
+                max-height: 200px;
+            }
+        }
+
+        @keyframes faultBlink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        @keyframes warningPulse {
+            0%, 100% { 
+                box-shadow: 0 0 15px rgba(239, 68, 68, 0.2);
+                transform: scale(1);
+            }
+            50% { 
+                box-shadow: 0 0 25px rgba(239, 68, 68, 0.4);
+                transform: scale(1.01);
+            }
+        }
+
+        @keyframes autoGlow {
+            0%, 100% { 
+                box-shadow: 0 0 8px rgba(245, 158, 11, 0.3);
+            }
+            50% { 
+                box-shadow: 0 0 15px rgba(245, 158, 11, 0.6);
+            }
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        @keyframes textPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-4px); }
+            75% { transform: translateX(4px); }
+        }
+
+        .updating { 
+            animation: valueUpdate 0.4s ease; 
+        }
+
+        @keyframes valueUpdate {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); color: #667eea; }
+            100% { transform: scale(1); }
+        }
+
+        @media (max-width: 768px) {
+            body { 
+                padding: 5px; 
+            }
+            
+            .card { 
+                padding: 12px; 
+            }
+            
+            .parameter-grid { 
+                grid-template-columns: repeat(2, 1fr); 
+                gap: 8px;
+            }
+            
+            .tab-btn { 
+                padding: 8px 12px; 
+                font-size: 0.8em; 
+                min-width: 100px;
+            }
+            
+            .relay-control { 
+                width: 100%; 
+                justify-content: flex-end; 
+            }
+            
+            .relay-btn { 
+                padding: 6px 12px; 
+                font-size: 0.8em; 
+            }
+            
+            .relay-status {
+                font-size: 0.75em;
+                padding: 4px 10px;
+            }
+            
+            .status-row {
+                gap: 5px;
+            }
+            
+            .status-badge,
+            .rssi-badge {
+                font-size: 0.7em;
+                padding: 3px 8px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .parameter-grid { 
+                grid-template-columns: 1fr; 
+            }
+            
+            .chart-controls { 
+                width: 100%; 
+                justify-content: center; 
+            }
+            
+            .card-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .relay-control {
+                justify-content: flex-start;
+            }
+            
+            .badge-container {
+                gap: 4px;
+            }
+            
+            .protection-badge {
+                font-size: 0.65em;
+                padding: 3px 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>⚡ Power Monitoring System</h1>
+            <p>📊 Real-time AC Monitoring with Relay Control & Auto Protection</p>
+            <div class="status-row">
+                <span class="status-badge disconnected" id="connectionStatus">🔴 Disconnected</span>
+                <span id="deviceStatusBadge" class="status-badge device-offline">📡 Offline</span>
+                <span id="rssiBadge" class="rssi-badge rssi-offline">📶 - dBm</span>
+            </div>
+        </div>
+
+        <!-- PWA Install Prompt -->
+        <div id="pwaInstallPrompt" class="pwa-install-prompt">
+            <strong>📱 Install App?</strong>
+            <p style="font-size: 0.85em; margin: 5px 0;">Install for quick access & offline use</p>
+            <button class="install-btn" onclick="installPWA()">✅ Install</button>
+            <button class="dismiss-btn" onclick="dismissInstall()">❌ Later</button>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('monitor')">📊 Monitor</button>
+            <button class="tab-btn" onclick="switchTab('settings')">⚙️ Settings</button>
+        </div>
+
+        <!-- Monitor Tab -->
+        <div id="monitorTab" class="tab-content active">
+            <!-- Priority Info -->
+            <div class="priority-info">
+                <strong>⚡ AUTO TRIP PRIORITY:</strong> Auto protection has highest priority. 
+                Even if relay is manually ON, fault detection will force relay OFF immediately.
+            </div>
+            
+            <!-- Fault Notification -->
+            <div id="faultNotification" class="fault-message" style="display: none;"></div>
+            
+            <!-- AC Parameters Card -->
+            <div class="dashboard-grid">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>
+                            🔌 AC Parameters
+                            <span class="priority-badge">⚡ AUTO TRIP ACTIVE</span>
+                        </h2>
+                        <div class="relay-control">
+                            <button id="manualRelayBtn" class="relay-btn manual-off" onclick="toggleManualRelay()">
+                                <span id="manualIcon">🔴</span> Manual
+                            </button>
+                            <button class="relay-btn reset-btn" onclick="sendCommand('reset_ac_fault')">
+                                🔁 Reset
+                            </button>
+                            <span id="acRelayStatus" class="relay-status">--</span>
+                        </div>
+                    </div>
+                    
+                    <div class="parameter-grid">
+                        <div class="param-item" id="acVoltageItem">
+                            <div class="param-label">⚡ Voltage</div>
+                            <div class="param-value">
+                                <span id="acVoltage">0.0</span><span class="param-unit">V</span>
+                            </div>
+                            <div class="warning-text" id="acVoltageWarning"></div>
+                        </div>
+                        <div class="param-item" id="acCurrentItem">
+                            <div class="param-label">🔌 Current</div>
+                            <div class="param-value">
+                                <span id="acCurrent">0.00</span><span class="param-unit">A</span>
+                            </div>
+                            <div class="warning-text" id="acCurrentWarning"></div>
+                        </div>
+                        <div class="param-item">
+                            <div class="param-label">💡 Real Power</div>
+                            <div class="param-value">
+                                <span id="acRealPower">0.0</span><span class="param-unit">W</span>
+                            </div>
+                        </div>
+                        <div class="param-item">
+                            <div class="param-label">📐 App. Power</div>
+                            <div class="param-value">
+                                <span id="acApparentPower">0.0</span><span class="param-unit">VA</span>
+                            </div>
+                        </div>
+                        <div class="param-item">
+                            <div class="param-label">📊 Power Factor</div>
+                            <div class="param-value">
+                                <span id="acPF">0.00</span>
+                            </div>
+                        </div>
+                        <div class="param-item">
+                            <div class="param-label">🔋 Energy</div>
+                            <div class="param-value">
+                                <span id="acEnergy">0.000</span><span class="param-unit">kWh</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="badge-container">
+                        <span id="acOvBadge" class="protection-badge normal">✅ Normal</span>
+                        <span id="acOcBadge" class="protection-badge normal">✅ Normal</span>
+                        <span id="acFaultBadge" class="protection-badge normal">✅ No Fault</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Section -->
+            <div class="chart-container">
+                <div class="chart-header">
+                    <h3>📈 Real-time Data (Last 10 readings)</h3>
+                    <div class="chart-controls">
+                        <button class="btn active" onclick="switchChart('voltage')">⚡ Voltage</button>
+                        <button class="btn" onclick="switchChart('current')">🔌 Current</button>
+                        <button class="btn" onclick="switchChart('power')">💡 Power</button>
+                        <button class="btn" onclick="switchChart('energy')">🔋 Energy</button>
+                    </div>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="dataChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div id="settingsTab" class="tab-content">
+            <!-- Protection Limits -->
+            <div class="settings-panel">
+                <h3>🛡️ Protection Limits</h3>
+                <div class="settings-grid">
+                    <div class="setting-item">
+                        <label>⚡ AC Overvoltage Limit</label>
+                        <div class="input-group">
+                            <input type="number" id="acVoltageLimit" step="1" placeholder="Enter voltage">
+                            <span class="input-unit">V</span>
+                        </div>
+                        <button onclick="setLimit('ac_v')">✅ Apply</button>
+                        <div class="limit-value">Current: <span id="currentAcVLimit">--</span></div>
+                    </div>
+                    <div class="setting-item">
+                        <label>🔌 AC Overcurrent Limit</label>
+                        <div class="input-group">
+                            <input type="number" id="acCurrentLimit" step="0.5" placeholder="Enter current">
+                            <span class="input-unit">A</span>
+                        </div>
+                        <button onclick="setLimit('ac_i')">✅ Apply</button>
+                        <div class="limit-value">Current: <span id="currentAcILimit">--</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Information -->
+            <div class="settings-panel">
+                <h3>ℹ️ System Information</h3>
+                <div class="info-row">
+                    <span class="info-label">🛡️ Protection Status</span>
+                    <span class="info-value" id="protectionStatusText">--</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">🔄 Relay Status</span>
+                    <span class="info-value" id="acRelayMode">--</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">⚠️ Fault Status</span>
+                    <span class="info-value" id="acFaultStatus">--</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">📡 Device Status</span>
+                    <span class="info-value" id="deviceConnectionInfo">--</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">📶 WiFi Signal</span>
+                    <span class="info-value" id="rssiInfo">--</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">🔬 Test Mode</span>
+                    <span class="info-value" id="testModeStatus">--</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">📱 PWA Status</span>
+                    <span class="info-value" id="pwaStatus">--</span>
+                </div>
+                
+                <div class="action-buttons">
+                    <button class="btn" onclick="sendCommand('get_status')">🔄 Refresh</button>
+                    <button class="btn" onclick="sendCommand('reset_all_faults')" style="background: #ef4444;">⚠️ Reset All</button>
+                    <button class="btn" onclick="sendCommand('reset_energy')" style="background: #f59e0b;">🔋 Reset Energy</button>
+                    <button class="btn" onclick="clearCache()" style="background: #6b7280;">🗑️ Clear Cache</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p>🔗 HiveMQ Broker (WSS) | 📊 Real-time Monitoring | 📱 PWA Ready</p>
+            <p>🛡️ Protection: AC &gt;<span id="acVlimitDisplay">260</span>V / &gt;<span id="acIlimitDisplay">10</span>A</p>
+            <p>⚡ AUTO TRIP has highest priority | Manual only blocked during fault</p>
+            <p style="font-size: 0.7em; margin-top: 5px;">🔄 Service Worker v1.0 | 📦 Offline Support</p>
+        </div>
+    </div>
+
+    <script>
+        // ============ KONFIGURASI MQTT ============
+        const broker = "broker.hivemq.com";
+        const wssPort = 8884;
+        const topic = "power/monitor/data";
+        const commandTopic = "power/monitor/command";
+        const clientId = "web_dashboard_" + Math.random().toString(16).substr(2, 8);
+
+        // ============ STATE VARIABLES ============
+        let currentLimits = { ac_voltage: 260, ac_current: 10 };
+        let currentFaults = { ac_fault: false };
+        let currentRelayState = false;
+        let currentRelayAuto = true;
+        let lastDataTimestamp = 0;
+        let deviceOnline = false;
+        let currentRSSI = null;
+        let limitsInitialized = false;
+
+        const DATA_INTERVAL = 2000;
+        const OFFLINE_THRESHOLD = DATA_INTERVAL * 4;
+        const maxDataPoints = 10;
+
+        const dataStore = {
+            timestamps: [], acVoltage: [], acCurrent: [], acPower: [], acEnergy: []
+        };
+
+        let chart;
+        let currentChartType = 'voltage';
+        let mqttClient = null;
+        
+        // ============ PWA VARIABLES ============
+        let deferredPrompt = null;
+        let pwaInstalled = false;
+
+        // ============ DEVICE STATUS CHECK ============
+        function checkDeviceStatus() {
+            const now = Date.now();
+            if (lastDataTimestamp === 0 || now - lastDataTimestamp > OFFLINE_THRESHOLD) {
+                setDeviceOffline();
+            } else {
+                setDeviceOnline();
+            }
+        }
+
+        function setDeviceOnline() {
+            if (!deviceOnline) {
+                deviceOnline = true;
+                updateDeviceBadge(true);
+            }
+        }
+
+        function setDeviceOffline() {
+            if (deviceOnline || lastDataTimestamp === 0) {
+                deviceOnline = false;
+                updateDeviceBadge(false);
+                updateRSSI(null);
+            }
+        }
+
+        function updateDeviceBadge(online) {
+            const badge = document.getElementById('deviceStatusBadge');
+            const infoEl = document.getElementById('deviceConnectionInfo');
+            
+            if (badge) {
+                badge.textContent = online ? '📡 Online' : '📡 Offline';
+                badge.className = online ? 'status-badge device-online' : 'status-badge device-offline';
+            }
+            
+            if (infoEl) {
+                infoEl.textContent = online ? '🟢 Online' : '🔴 Offline';
+                infoEl.style.color = online ? '#10b981' : '#ef4444';
+            }
+        }
+
+        function updateRSSI(rssi) {
+            currentRSSI = rssi;
+            const rssiBadge = document.getElementById('rssiBadge');
+            const rssiInfo = document.getElementById('rssiInfo');
+            
+            if (!deviceOnline || rssi === null || rssi === undefined) {
+                if (rssiBadge) {
+                    rssiBadge.textContent = '📶 - dBm';
+                    rssiBadge.className = 'rssi-badge rssi-offline';
+                }
+                if (rssiInfo) {
+                    rssiInfo.textContent = '- dBm';
+                    rssiInfo.style.color = '#6b7280';
+                }
+                return;
+            }
+            
+            let rssiText = rssi + ' dBm';
+            let rssiClass = 'rssi-badge ';
+            
+            if (rssi >= -50) {
+                rssiClass += 'rssi-excellent';
+            } else if (rssi >= -65) {
+                rssiClass += 'rssi-good';
+            } else if (rssi >= -75) {
+                rssiClass += 'rssi-fair';
+            } else {
+                rssiClass += 'rssi-poor';
+            }
+            
+            if (rssiBadge) {
+                rssiBadge.textContent = '📶 ' + rssiText;
+                rssiBadge.className = rssiClass;
+            }
+            
+            if (rssiInfo) {
+                rssiInfo.textContent = rssiText;
+                if (rssi >= -50) {
+                    rssiInfo.style.color = '#10b981';
+                } else if (rssi >= -65) {
+                    rssiInfo.style.color = '#3b82f6';
+                } else if (rssi >= -75) {
+                    rssiInfo.style.color = '#f59e0b';
+                } else {
+                    rssiInfo.style.color = '#ef4444';
+                }
+            }
+        }
+
+        setInterval(checkDeviceStatus, 1000);
+
+        // ============ TAB SWITCHING ============
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            
+            if (tab === 'monitor') {
+                document.getElementById('monitorTab').classList.add('active');
+                document.querySelector('.tab-btn:first-child').classList.add('active');
+            } else {
+                document.getElementById('settingsTab').classList.add('active');
+                document.querySelector('.tab-btn:last-child').classList.add('active');
+            }
+        }
+
+        // ============ MQTT COMMANDS ============
+        function sendCommand(cmd) {
+            if (mqttClient && mqttClient.isConnected()) {
+                const message = new Paho.MQTT.Message(cmd);
+                message.destinationName = commandTopic;
+                mqttClient.send(message);
+                console.log("📤 Command sent:", cmd);
+                
+                // Simpan command untuk background sync jika offline
+                savePendingCommand(cmd);
+            } else {
+                console.log("❌ MQTT not connected - saving for later sync");
+                savePendingCommand(cmd);
+                showToast("📤 Command queued for sync", "info");
+            }
+        }
+
+        function toggleManualRelay() {
+            if (currentFaults.ac_fault) {
+                shakeButton('manualRelayBtn');
+                alert("⚠️ AUTO TRIP ACTIVE! Cannot operate relay during fault.\n\nEven if relay was manually ON, fault detection forces it OFF.\nReset fault first when values are normal.");
+                return;
+            }
+            
+            sendCommand('relay_ac_toggle');
+        }
+
+        function shakeButton(buttonId) {
+            const btn = document.getElementById(buttonId);
+            if (btn) {
+                btn.style.animation = 'shake 0.5s ease';
+                setTimeout(() => {
+                    btn.style.animation = '';
+                }, 500);
+            }
+        }
+
+        function updateManualButton(relayState, relayAuto, faultActive) {
+            const manualBtn = document.getElementById('manualRelayBtn');
+            const manualIcon = document.getElementById('manualIcon');
+            
+            if (!manualBtn || !manualIcon) return;
+            
+            if (faultActive) {
+                manualBtn.disabled = true;
+                manualBtn.className = 'relay-btn manual-fault';
+                manualIcon.textContent = '🚫';
+                manualBtn.title = 'BLOCKED: Auto trip active - Fault detected';
+            } else {
+                manualBtn.disabled = false;
+                manualBtn.title = relayState ? 'Click to turn OFF (Auto trip will override if fault occurs)' : 'Click to turn ON';
+                
+                if (relayState) {
+                    manualBtn.className = 'relay-btn manual-on';
+                    manualIcon.textContent = '🟢';
+                } else {
+                    manualBtn.className = 'relay-btn manual-off';
+                    manualIcon.textContent = '🔴';
+                }
+            }
+        }
+
+        function setLimit(type) {
+            let value, cmd;
+            switch(type) {
+                case 'ac_v':
+                    value = document.getElementById('acVoltageLimit').value;
+                    if (!value || isNaN(value) || parseFloat(value) <= 0) {
+                        alert("Please enter a valid voltage limit");
+                        return;
+                    }
+                    cmd = "set_ac_v_limit:" + value;
+                    break;
+                case 'ac_i':
+                    value = document.getElementById('acCurrentLimit').value;
+                    if (!value || isNaN(value) || parseFloat(value) <= 0) {
+                        alert("Please enter a valid current limit");
+                        return;
+                    }
+                    cmd = "set_ac_i_limit:" + value;
+                    break;
+            }
+            if (cmd) {
+                sendCommand(cmd);
+                if (type === 'ac_v') {
+                    document.getElementById('acVoltageLimit').value = '';
+                } else {
+                    document.getElementById('acCurrentLimit').value = '';
+                }
+                setTimeout(() => sendCommand('get_status'), 500);
+            }
+        }
+
+        // ============ CHART FUNCTIONS ============
+        function initChart() {
+            const ctx = document.getElementById('dataChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: '⚡ AC Voltage (V)',
+                        data: [],
+                        borderColor: 'rgb(102, 126, 234)',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.4,
+                        fill: true,
+                        pointRadius: 3,
+                        pointHoverRadius: 5
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { 
+                        mode: 'index', 
+                        intersect: false 
+                    },
+                    plugins: {
+                        legend: { 
+                            position: 'top', 
+                            labels: { 
+                                boxWidth: 10, 
+                                font: { size: 11 },
+                                padding: 15
+                            } 
+                        },
+                        tooltip: { 
+                            enabled: true, 
+                            mode: 'index', 
+                            intersect: false 
+                        }
+                    },
+                    scales: {
+                        y: { 
+                            beginAtZero: true, 
+                            grid: { 
+                                color: 'rgba(0, 0, 0, 0.06)' 
+                            },
+                            ticks: {
+                                font: { size: 10 }
+                            }
+                        },
+                        x: { 
+                            grid: { 
+                                display: false 
+                            },
+                            ticks: {
+                                font: { size: 10 }
+                            }
+                        }
+                    },
+                    animation: {
+                        duration: 400,
+                        easing: 'easeInOutQuart'
+                    }
+                }
+            });
+        }
+
+        function switchChart(type) {
+            currentChartType = type;
+            document.querySelectorAll('#monitorTab .btn').forEach(btn => btn.classList.remove('active'));
+            if (event && event.target) event.target.classList.add('active');
+            updateChart();
+        }
+
+        function addDataPoint(timestamp, acData) {
+            const timeStr = new Date(timestamp).toLocaleTimeString('en-US', { 
+                hour12: false, 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                second: '2-digit' 
+            });
+            
+            dataStore.timestamps.push(timeStr);
+            dataStore.acVoltage.push(acData.voltage);
+            dataStore.acCurrent.push(acData.current);
+            dataStore.acPower.push(acData.real_power);
+            dataStore.acEnergy.push(acData.energy);
+            
+            while (dataStore.timestamps.length > maxDataPoints) {
+                dataStore.timestamps.shift();
+                dataStore.acVoltage.shift();
+                dataStore.acCurrent.shift();
+                dataStore.acPower.shift();
+                dataStore.acEnergy.shift();
+            }
+            
+            updateChart();
+        }
+
+        function updateChart() {
+            if (!chart) return;
+            
+            chart.data.labels = dataStore.timestamps;
+            
+            switch(currentChartType) {
+                case 'voltage':
+                    chart.data.datasets[0].label = '⚡ AC Voltage (V)';
+                    chart.data.datasets[0].data = dataStore.acVoltage;
+                    break;
+                case 'current':
+                    chart.data.datasets[0].label = '🔌 AC Current (A)';
+                    chart.data.datasets[0].data = dataStore.acCurrent;
+                    break;
+                case 'power':
+                    chart.data.datasets[0].label = '💡 AC Power (W)';
+                    chart.data.datasets[0].data = dataStore.acPower;
+                    break;
+                case 'energy':
+                    chart.data.datasets[0].label = '🔋 AC Energy (kWh)';
+                    chart.data.datasets[0].data = dataStore.acEnergy;
+                    break;
+            }
+            
+            chart.update('none');
+        }
+
+        // ============ UI UPDATE FUNCTIONS ============
+        function updateRelayUI(acState, acAuto, acFault) {
+            const acRelayStatus = document.getElementById('acRelayStatus');
+            const acRelayMode = document.getElementById('acRelayMode');
+            
+            currentRelayState = acState;
+            currentRelayAuto = acAuto;
+            
+            if (acRelayStatus) {
+                if (acFault) {
+                    acRelayStatus.textContent = '⚡ TRIPPED';
+                    acRelayStatus.className = 'relay-status tripped';
+                    acRelayStatus.title = 'Auto trip activated! Relay forced OFF by protection';
+                } else if (acAuto && acState) {
+                    acRelayStatus.textContent = '🟢 AUTO ON';
+                    acRelayStatus.className = 'relay-status auto-on';
+                    acRelayStatus.title = 'Auto mode: Relay ON';
+                } else if (acAuto && !acState) {
+                    acRelayStatus.textContent = '🔴 AUTO OFF';
+                    acRelayStatus.className = 'relay-status auto-off';
+                    acRelayStatus.title = 'Auto mode: Relay OFF';
+                } else if (!acAuto && acState) {
+                    acRelayStatus.textContent = '🟢 MANUAL ON';
+                    acRelayStatus.className = 'relay-status on';
+                    acRelayStatus.title = 'Manual mode: Relay ON (Auto trip will override if fault)';
+                } else {
+                    acRelayStatus.textContent = '🔴 MANUAL OFF';
+                    acRelayStatus.className = 'relay-status off';
+                    acRelayStatus.title = 'Manual mode: Relay OFF';
+                }
+            }
+            
+            if (acRelayMode) {
+                if (acFault) {
+                    acRelayMode.textContent = '⚡ AUTO TRIPPED';
+                    acRelayMode.style.color = '#f59e0b';
+                } else {
+                    acRelayMode.textContent = acAuto ? '🔄 AUTO (' + (acState ? 'ON' : 'OFF') + ')' : '👆 MANUAL (' + (acState ? 'ON' : 'OFF') + ')';
+                    acRelayMode.style.color = '#1f2937';
+                }
+            }
+            
+            updateManualButton(acState, acAuto, acFault);
+        }
+
+        function updateProtectionUI(acOv, acOc, acFault) {
+            const acOvBadge = document.getElementById('acOvBadge');
+            const acOcBadge = document.getElementById('acOcBadge');
+            const acFaultBadge = document.getElementById('acFaultBadge');
+            const protectionText = document.getElementById('protectionStatusText');
+            const acFaultStatus = document.getElementById('acFaultStatus');
+            const faultNotification = document.getElementById('faultNotification');
+            const acVoltageItem = document.getElementById('acVoltageItem');
+            const acCurrentItem = document.getElementById('acCurrentItem');
+            
+            if (acOvBadge) {
+                acOvBadge.className = acOv ? 'protection-badge overvoltage' : 'protection-badge normal';
+                acOvBadge.textContent = acOv ? '⚡ Overvoltage!' : '✅ Normal';
+            }
+            
+            if (acOcBadge) {
+                acOcBadge.className = acOc ? 'protection-badge overcurrent' : 'protection-badge normal';
+                acOcBadge.textContent = acOc ? '🔌 Overcurrent!' : '✅ Normal';
+            }
+            
+            if (acFaultBadge) {
+                acFaultBadge.className = acFault ? 'protection-badge fault' : 'protection-badge normal';
+                acFaultBadge.textContent = acFault ? '⚡ AUTO TRIPPED!' : '✅ No Fault';
+            }
+            
+            if (acFaultStatus) {
+                acFaultStatus.textContent = acFault ? '⚡ ACTIVE (Auto Trip)' : '✅ None';
+                acFaultStatus.style.color = acFault ? '#f59e0b' : '#10b981';
+            }
+            
+            let faultMessages = [];
+            if (acOv) faultMessages.push('⚡ Overvoltage');
+            if (acOc) faultMessages.push('🔌 Overcurrent');
+            
+            if (faultNotification) {
+                if (faultMessages.length > 0) {
+                    faultNotification.style.display = 'block';
+                    faultNotification.innerHTML = '<strong>⚡ AUTO TRIP ACTIVATED!</strong><br>' + 
+                        faultMessages.join(', ') + 
+                        '<br>🛡️ Relay forced OFF by protection (highest priority)<br>🔒 Manual control blocked | 🔁 Press Reset after normal';
+                } else if (acFault) {
+                    faultNotification.style.display = 'block';
+                    faultNotification.innerHTML = '<strong>⚠️ FAULT LATCHED!</strong><br>' + 
+                        '✅ Values normal now | 🔁 Press RESET to clear fault';
+                } else {
+                    faultNotification.style.display = 'none';
+                }
+            }
+            
+            if (protectionText) {
+                let faults = [];
+                if (acOv) faults.push('⚡ Overvoltage');
+                if (acOc) faults.push('🔌 Overcurrent');
+                protectionText.textContent = faults.length ? '⚡ AUTO TRIP: ' + faults.join(', ') : '✅ All Normal';
+                protectionText.style.color = faults.length ? '#f59e0b' : '#10b981';
+            }
+            
+            if (acVoltageItem) {
+                if (acOv) {
+                    acVoltageItem.classList.add('protection-warning');
+                    document.getElementById('acVoltageWarning').textContent = `⚠️ LIMIT >${currentLimits.ac_voltage}V`;
+                } else {
+                    acVoltageItem.classList.remove('protection-warning');
+                    document.getElementById('acVoltageWarning').textContent = '';
+                }
+            }
+            
+            if (acCurrentItem) {
+                if (acOc) {
+                    acCurrentItem.classList.add('protection-warning');
+                    document.getElementById('acCurrentWarning').textContent = `⚠️ LIMIT >${currentLimits.ac_current}A`;
+                } else {
+                    acCurrentItem.classList.remove('protection-warning');
+                    document.getElementById('acCurrentWarning').textContent = '';
+                }
+            }
+        }
+
+        function updateLimitsUI(limits) {
+            if (limits.ac_voltage) currentLimits.ac_voltage = limits.ac_voltage;
+            if (limits.ac_current) currentLimits.ac_current = limits.ac_current;
+            
+            const elements = {
+                currentAcVLimit: currentLimits.ac_voltage + ' V',
+                currentAcILimit: currentLimits.ac_current + ' A',
+                acVlimitDisplay: currentLimits.ac_voltage,
+                acIlimitDisplay: currentLimits.ac_current
+            };
+            
+            Object.keys(elements).forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = elements[id];
+            });
+            
+            const vInput = document.getElementById('acVoltageLimit');
+            const iInput = document.getElementById('acCurrentLimit');
+            
+            if (vInput) vInput.placeholder = 'Current: ' + currentLimits.ac_voltage + ' V';
+            if (iInput) iInput.placeholder = 'Current: ' + currentLimits.ac_current + ' A';
+            
+            limitsInitialized = true;
+        }
+
+        function updateDisplay(acData) {
+            lastDataTimestamp = Date.now();
+            
+            const elements = {
+                acVoltage: acData.voltage.toFixed(1),
+                acCurrent: acData.current.toFixed(2),
+                acRealPower: acData.real_power.toFixed(1),
+                acApparentPower: acData.apparent_power.toFixed(1),
+                acPF: acData.pf.toFixed(2),
+                acEnergy: acData.energy.toFixed(3)
+            };
+            
+            Object.keys(elements).forEach(id => {
+                const element = document.getElementById(id);
+                if (element) {
+                    const oldValue = element.textContent;
+                    const newValue = elements[id];
+                    if (oldValue !== newValue) {
+                        element.textContent = newValue;
+                        element.parentElement.classList.add('updating');
+                        setTimeout(() => element.parentElement.classList.remove('updating'), 400);
+                    }
+                }
+            });
+            
+            const acFault = acData.fault_active || false;
+            currentFaults.ac_fault = acFault;
+            
+            updateRelayUI(acData.relay_state, acData.relay_auto, acFault);
+            updateProtectionUI(acData.overvoltage, acData.overcurrent, acFault);
+            
+            if (acData.rssi !== undefined) {
+                updateRSSI(acData.rssi);
+            } else if (deviceOnline) {
+                updateRSSI(null);
+            }
+            
+            const testModeElem = document.getElementById('testModeStatus');
+            if (testModeElem && acData.test_mode !== undefined) {
+                testModeElem.textContent = acData.test_mode ? '🔬 ACTIVE' : '✅ Normal';
+                testModeElem.style.color = acData.test_mode ? '#f59e0b' : '#10b981';
+            }
+        }
+
+        // ============ MQTT CONNECTION ============
+        function connectMQTT() {
+            mqttClient = new Paho.MQTT.Client(broker, wssPort, clientId);
+            
+            mqttClient.onConnectionLost = (responseObject) => {
+                if (responseObject.errorCode !== 0) {
+                    document.getElementById('connectionStatus').textContent = '🔴 Disconnected';
+                    document.getElementById('connectionStatus').className = 'status-badge disconnected';
+                    setTimeout(connectMQTT, 5000);
+                }
+            };
+            
+            mqttClient.onMessageArrived = (message) => {
+                try {
+                    const data = JSON.parse(message.payloadString);
+                    
+                    if (message.destinationName === topic) {
+                        if (data.ac) {
+                            updateDisplay(data.ac);
+                            addDataPoint(data.timestamp || Date.now(), data.ac);
+                            
+                            // Simpan data terakhir untuk offline
+                            saveLastData(data);
+                        }
+                        
+                        if (data.limits) {
+                            updateLimitsUI(data.limits);
+                            saveLimits(data.limits);
+                        }
+                    }
+                } catch (e) {
+                    console.error("❌ Parse error:", e);
+                }
+            };
+            
+            mqttClient.connect({
+                onSuccess: () => {
+                    console.log("✅ MQTT Connected");
+                    document.getElementById('connectionStatus').textContent = '🟢 Connected';
+                    document.getElementById('connectionStatus').className = 'status-badge connected';
+                    mqttClient.subscribe(topic);
+                    sendCommand('get_status');
+                    
+                    // Kirim pending commands
+                    syncPendingCommands();
+                },
+                onFailure: (err) => {
+                    console.error("❌ Connection failed:", err);
+                    setTimeout(connectMQTT, 5000);
+                },
+                useSSL: true,
+                timeout: 10,
+                keepAliveInterval: 60
+            });
+        }
+
+        // ============ OFFLINE STORAGE FUNCTIONS ============
+        function saveLastData(data) {
+            try {
+                localStorage.setItem('lastMonitoringData', JSON.stringify({
+                    data: data,
+                    timestamp: Date.now()
+                }));
+            } catch (e) {
+                console.warn('Failed to save to localStorage');
+            }
+        }
+
+        function saveLimits(limits) {
+            try {
+                localStorage.setItem('lastLimits', JSON.stringify(limits));
+            } catch (e) {
+                console.warn('Failed to save limits');
+            }
+        }
+
+        function loadLastData() {
+            try {
+                const saved = localStorage.getItem('lastMonitoringData');
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    if (parsed.data && parsed.data.ac) {
+                        updateDisplay(parsed.data.ac);
+                        addDataPoint(parsed.timestamp, parsed.data.ac);
+                    }
+                }
+                
+                const savedLimits = localStorage.getItem('lastLimits');
+                if (savedLimits) {
+                    updateLimitsUI(JSON.parse(savedLimits));
+                }
+            } catch (e) {
+                console.warn('Failed to load saved data');
+            }
+        }
+
+        function savePendingCommand(cmd) {
+            try {
+                let commands = JSON.parse(localStorage.getItem('pendingCommands') || '[]');
+                commands.push({ cmd: cmd, timestamp: Date.now() });
+                localStorage.setItem('pendingCommands', JSON.stringify(commands));
+            } catch (e) {
+                console.warn('Failed to save pending command');
+            }
+        }
+
+        function syncPendingCommands() {
+            try {
+                const commands = JSON.parse(localStorage.getItem('pendingCommands') || '[]');
+                if (commands.length > 0) {
+                    console.log('Syncing pending commands:', commands.length);
+                    commands.forEach(item => {
+                        if (mqttClient && mqttClient.isConnected()) {
+                            const message = new Paho.MQTT.Message(item.cmd);
+                            message.destinationName = commandTopic;
+                            mqttClient.send(message);
+                        }
+                    });
+                    localStorage.setItem('pendingCommands', '[]');
+                }
+            } catch (e) {
+                console.warn('Failed to sync commands');
+            }
+        }
+
+        function clearCache() {
+            if (confirm('Clear all cached data and reload?')) {
+                localStorage.clear();
+                if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+                    navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_CACHE' });
+                }
+                setTimeout(() => window.location.reload(), 500);
+            }
+        }
+
+        // ============ PWA FUNCTIONS ============
+        function checkPWAStatus() {
+            const pwaStatus = document.getElementById('pwaStatus');
+            if (!pwaStatus) return;
+            
+            // Deteksi standalone mode
+            const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
+                                window.navigator.standalone || 
+                                document.referrer.includes('android-app://');
+            
+            // Deteksi service worker
+            const hasSW = 'serviceWorker' in navigator && navigator.serviceWorker.controller;
+            
+            if (isStandalone) {
+                pwaInstalled = true;
+                pwaStatus.textContent = '✅ Installed (Standalone)';
+                pwaStatus.style.color = '#10b981';
+            } else if (hasSW) {
+                pwaStatus.textContent = '📦 Ready (Browser with SW)';
+                pwaStatus.style.color = '#3b82f6';
+            } else {
+                pwaStatus.textContent = '🌐 Web Only';
+                pwaStatus.style.color = '#6b7280';
+            }
+        }
+
+        function initPWA() {
+            // Listen for install prompt
+            window.addEventListener('beforeinstallprompt', (e) => {
+                e.preventDefault();
+                deferredPrompt = e;
+                
+                // Show install prompt setelah 3 detik
+                setTimeout(() => {
+                    if (!pwaInstalled && deferredPrompt) {
+                        document.getElementById('pwaInstallPrompt').style.display = 'block';
+                    }
+                }, 3000);
+            });
+
+            // Deteksi ketika app sudah terinstall
+            window.addEventListener('appinstalled', () => {
+                pwaInstalled = true;
+                deferredPrompt = null;
+                document.getElementById('pwaInstallPrompt').style.display = 'none';
+                checkPWAStatus();
+                console.log('✅ PWA installed successfully');
+            });
+
+            // Monitor display mode changes
+            window.matchMedia('(display-mode: standalone)').addEventListener('change', (e) => {
+                if (e.matches) {
+                    pwaInstalled = true;
+                }
+                checkPWAStatus();
+            });
+
+            checkPWAStatus();
+        }
+
+        function installPWA() {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then((choiceResult) => {
+                    if (choiceResult.outcome === 'accepted') {
+                        console.log('✅ User accepted install');
+                        pwaInstalled = true;
+                    } else {
+                        console.log('❌ User dismissed install');
+                    }
+                    deferredPrompt = null;
+                    document.getElementById('pwaInstallPrompt').style.display = 'none';
+                });
+            } else {
+                showToast('📱 Install not available. Use browser menu > Add to Home Screen', 'info');
+            }
+        }
+
+        function dismissInstall() {
+            document.getElementById('pwaInstallPrompt').style.display = 'none';
+            localStorage.setItem('installDismissed', Date.now());
+        }
+
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.style.cssText = `
+                position: fixed;
+                bottom: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: ${type === 'error' ? '#ef4444' : '#667eea'};
+                color: white;
+                padding: 10px 20px;
+                border-radius: 10px;
+                z-index: 10000;
+                animation: slideIn 0.5s ease;
+                font-size: 0.9em;
+            `;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        // ============ SERVICE WORKER REGISTRATION ============
+        function registerServiceWorker() {
+            if ('serviceWorker' in navigator) {
+                let refreshing = false;
+                
+                navigator.serviceWorker.addEventListener('controllerchange', () => {
+                    if (refreshing) return;
+                    refreshing = true;
+                    console.log('[SW] 🔄 New service worker activated, reloading...');
+                    window.location.reload();
+                });
+                
+                window.addEventListener('load', async () => {
+                    try {
+                        const registration = await navigator.serviceWorker.register('/sw.js', {
+                            scope: '/'
+                        });
+                        
+                        console.log('[SW] ✅ Registered successfully:', registration.scope);
+                        
+                        // Cek update setiap 30 menit
+                        setInterval(() => {
+                            registration.update();
+                            console.log('[SW] 🔍 Checking for updates...');
+                        }, 30 * 60 * 1000);
+                        
+                        // Handler untuk update
+                        registration.addEventListener('updatefound', () => {
+                            const newWorker = registration.installing;
+                            
+                            newWorker.addEventListener('statechange', () => {
+                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                    console.log('[SW] 🔄 New version available!');
+                                    showUpdateNotification(registration);
+                                }
+                            });
+                        });
+                        
+                        // Mendengarkan pesan dari service worker
+                        navigator.serviceWorker.addEventListener('message', event => {
+                            if (event.data && event.data.type === 'CHECK_STATUS') {
+                                console.log('[SW] 📨 Status check requested by SW');
+                                if (typeof sendCommand === 'function') {
+                                    sendCommand('get_status');
+                                }
+                            }
+                        });
+                        
+                    } catch (err) {
+                        console.error('[SW] ❌ Registration failed:', err);
+                    }
+                });
+            } else {
+                console.warn('[SW] ⚠️ Service Worker not supported');
+            }
+        }
+
+        function showUpdateNotification(registration) {
+            const updateToast = document.createElement('div');
+            updateToast.id = 'swUpdateToast';
+            updateToast.style.cssText = `
+                position: fixed;
+                bottom: 80px;
+                right: 20px;
+                background: #667eea;
+                color: white;
+                padding: 15px 20px;
+                border-radius: 10px;
+                box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+                z-index: 10000;
+                animation: slideIn 0.5s ease;
+            `;
+            updateToast.innerHTML = `
+                <p style="margin: 0 0 10px 0;"><strong>🔔 Update Available!</strong></p>
+                <button id="swUpdateBtn" style="
+                    background: white;
+                    color: #667eea;
+                    border: none;
+                    padding: 8px 16px;
+                    border-radius: 6px;
+                    font-weight: bold;
+                    cursor: pointer;
+                    margin-right: 8px;
+                ">Update Now</button>
+                <button id="swDismissBtn" style="
+                    background: transparent;
+                    color: white;
+                    border: 1px solid white;
+                    padding: 8px 16px;
+                    border-radius: 6px;
+                    cursor: pointer;
+                ">Later</button>
+            `;
+            document.body.appendChild(updateToast);
+            
+            document.getElementById('swUpdateBtn').onclick = () => {
+                registration.waiting?.postMessage({ type: 'SKIP_WAITING' });
+                updateToast.remove();
+            };
+            
+            document.getElementById('swDismissBtn').onclick = () => {
+                updateToast.remove();
+            };
+        }
+
+        // ============ INITIALIZATION ============
+        window.onload = () => {
+            console.log("🚀 Initializing Power Monitoring System...");
+            initChart();
+            loadLastData();
+            connectMQTT();
+            initPWA();
+            registerServiceWorker();
+            
+            window.addEventListener('resize', () => {
+                if (chart) chart.resize();
+            });
+            
+            // Cek apakah install prompt sudah pernah ditutup
+            const dismissed = localStorage.getItem('installDismissed');
+            if (dismissed && (Date.now() - parseInt(dismissed)) < 86400000) {
+                // Tidak tampilkan lagi dalam 24 jam
+                console.log('Install prompt dismissed recently');
+            }
+            
+            console.log("✅ System initialized successfully");
+        };
+    </script>
+</body>
+</html>
